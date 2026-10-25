@@ -9,6 +9,9 @@
 
 from __future__ import annotations
 
+import base64
+import logging
+
 from plugin.sdk.plugin import (
     NekoPluginBase,
     lifecycle,
@@ -18,6 +21,39 @@ from plugin.sdk.plugin import (
 )
 
 from . import capture
+
+_log = logging.getLogger("N.E.K.O.Plugin_screen_reader")
+
+
+def _image_entry(image_path: str) -> list | None:
+    """把截图文件读成 N.E.K.O ``images`` 通道条目 [{data_b64, mime}]。
+
+    关键：N.E.K.O 只把工具返回 dict 的 ``images`` 数组喂给模型视觉——
+    ``screenshot`` 字段只是文本路径，YUI 永远收不到图（'看不到画面'的根因之一）。
+    超 2MB base64 上限时用 PIL 缩图存 JPEG（N.E.K.O 交付侧还会压缩到 ≤500KB）。
+    """
+    if not image_path:
+        return None
+    try:
+        with open(image_path, "rb") as fh:
+            raw = fh.read()
+        b64 = base64.b64encode(raw).decode("ascii")
+        if len(b64) <= 2 * 1024 * 1024:
+            return [{"data_b64": b64, "mime": "image/png"}]
+        from io import BytesIO
+
+        from PIL import Image
+
+        im = Image.open(image_path).convert("RGB")
+        w, h = im.size
+        scale = min(1.0, 1200.0 / max(w, h))
+        if scale < 1.0:
+            im = im.resize((max(1, int(w * scale)), max(1, int(h * scale))))
+        buf = BytesIO()
+        im.save(buf, "JPEG", quality=82)
+        return [{"data_b64": base64.b64encode(buf.getvalue()).decode("ascii"), "mime": "image/jpeg"}]
+    except Exception:
+        return None
 
 
 @neko_plugin
@@ -79,6 +115,7 @@ class ScreenReaderPlugin(NekoPluginBase):
                           f"尺寸：{info['width']}×{info['height']}\n截图路径：{path}",
                 "is_error": False,
                 "screenshot": path,
+                "images": _image_entry(path) or [],
                 "window": info,
             }
 
@@ -90,6 +127,7 @@ class ScreenReaderPlugin(NekoPluginBase):
                       "需要时可用视觉能力直接查看该图片。",
             "is_error": False,
             "screenshot": path,
+            "images": _image_entry(path) or [],
         }
 
     @llm_tool(
@@ -131,6 +169,7 @@ class ScreenReaderPlugin(NekoPluginBase):
                 "output": "OCR 不可用：未检测到 Tesseract-OCR 引擎。已保留截图路径，可直接用视觉能力查看：\n" + path,
                 "is_error": False,
                 "screenshot": path,
+                "images": _image_entry(path) or [],
             }
         if not text.strip():
             return {"output": "识别完成：画面中没有检测到文字。", "is_error": False, "text": ""}
