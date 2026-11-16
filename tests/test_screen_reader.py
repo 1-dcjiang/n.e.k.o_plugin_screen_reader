@@ -80,10 +80,10 @@ def test_capture_region_parsing():
 
 
 def test_manifest_version():
-    """plugin.toml 版本与代码一致（0.1.3）。"""
+    """plugin.toml 版本与代码一致（0.1.4）。"""
     import re
     from pathlib import Path
 
     toml = Path(__file__).resolve().parents[1] / "plugin.toml"
     m = re.search(r'version\s*=\s*"([^"]+)"', toml.read_text(encoding="utf-8"))
-    assert m and m.group(1) == "0.1.3"
+    assert m and m.group(1) == "0.1.4"
